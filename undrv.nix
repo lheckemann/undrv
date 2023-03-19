@@ -1,17 +1,25 @@
-{ top, lib, depsDir, drvsJSON }:
+{ top, lib, depsDir, drvsJSON, pathsJSON }:
 let
-  raw = builtins.fromJSON (builtins.readFile drvsJSON);
-  restoredDrvs = lib.mapAttrs (drvPath: drvData: drv drvPath) raw;
+  pathInfo = builtins.fromJSON (builtins.readFile pathsJSON);
+  rawDrvs = builtins.fromJSON (builtins.readFile drvsJSON);
+  restoredDrvs = lib.mapAttrs (drvPath: drvData: drv drvPath) rawDrvs;
   drv = drvPath: let
-    drvData = raw.${drvPath};
+    drvData = rawDrvs.${drvPath};
 
     # Attrset mapping contextless store path strings to the same
     # string but with the context of that path
-    inputSrcs = lib.genAttrs drvData.inputSrcs (storepath: let
-      match = builtins.match "/nix/store/([a-z0-9]+)-(.*)" storepath;
+    inputSrcs = lib.genAttrs drvData.inputSrcs (storePath: let
+      contentAddress = pathInfo.${storePath}.ca;
+      contentAddressScheme = builtins.head (lib.splitString ":" contentAddress);
+      match = builtins.match "/nix/store/([a-z0-9]+)-(.*)" storePath;
       hash = builtins.elemAt match 0;
       name = builtins.elemAt match 1;
-    in "${depsDir + "/${hash}/${name}"}");
+      file = "${depsDir + "/${hash}/${name}"}";
+      in {
+        fixed = file;
+        text = builtins.toFile name (builtins.readFile file);
+      }.${contentAddressScheme}
+    );
 
     inputSrcValues = map (name: inputSrcs.${name}) drvData.inputSrcs;
 
@@ -33,7 +41,7 @@ let
 
     env = lib.mapAttrs (key: value: restoreReferences value) drvData.env;
 
-    result = assert builtins.match ".*libcxxabi-static.*" drvPath == null; derivation (env // {
+    result = derivation (env // {
       inherit (drvData) system;
       name = builtins.elemAt (builtins.match "/nix/store/[a-z0-9]+-(.*)\.drv" drvPath) 0;
       builder = restoreReferences drvData.builder;

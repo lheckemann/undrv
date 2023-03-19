@@ -9,6 +9,7 @@ fi
 mkdir "$output"
 drv="$1"
 nix show-derivation -r "$drv" > $output/drvs.json
+nix path-info --json --derivation -r "$drv" | jq 'map({key: .path, value: .}) | from_entries' > $output/paths.json
 cd $output
 mkdir deps/
 IFS=
@@ -32,6 +33,7 @@ import ./undrv.nix {
   depsDir = ./deps;
   lib = import <nixpkgs/lib>;
   drvsJSON = ./drvs.json;
+  pathsJSON = ./paths.json;
 }
 EOF
 
@@ -40,7 +42,7 @@ nix eval \
     --show-trace \
     --debugger \
     --file . \
-    drvPath
+    drvPath >/dev/null
 
 drv=$(nix eval \
     --raw \
